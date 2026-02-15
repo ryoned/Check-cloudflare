@@ -190,7 +190,6 @@ async function CheckProxyIP(proxyIP, colo) {
     if (!value) throw new Error("连接超时");
     const text = new TextDecoder().decode(value);
     if ((text.includes("cloudflare") || text.includes("CF-RAY")) && text.includes("400 Bad Request")) {
-       // 模拟TLS握手耗时
        const tStart = performance.now();
        try { const s2 = connect({hostname: proxyIP, port: portRemote}); await s2.opened; await s2.close(); } catch(e){}
        return {
@@ -208,7 +207,7 @@ async function CheckProxyIP(proxyIP, colo) {
 async function 双重哈希(t){const e=new TextEncoder,n=await crypto.subtle.digest("MD5",e.encode(t)),o=Array.from(new Uint8Array(n)).map(t=>t.toString(16).padStart(2,"0")).join(""),a=await crypto.subtle.digest("MD5",e.encode(o.slice(7,27))),r=Array.from(new Uint8Array(a));return r.map(t=>t.toString(16).padStart(2,"0")).join("").toLowerCase()}
 
 // ============================================
-// 前端 HTML (统一暗黑风格)
+// 前端 HTML (统一暗黑风格 + 并发修复)
 // ============================================
 function renderUnifiedPage(cfData, favicon, hostname, token) {
   return `<!DOCTYPE html>
@@ -220,20 +219,14 @@ function renderUnifiedPage(cfData, favicon, hostname, token) {
   <link rel="icon" href="${favicon}" type="image/x-icon">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    /* === 全局暗黑主题 (复用 Link Tracer 风格) === */
+    /* === 全局暗黑主题 === */
     :root {
-      --bg-color: #0f172a;
-      --card-bg: #1e293b;
-      --border-color: #334155;
-      --text-color: #f1f5f9;
-      --text-muted: #94a3b8;
+      --bg-color: #0f172a; --card-bg: #1e293b; --border-color: #334155;
+      --text-color: #f1f5f9; --text-muted: #94a3b8;
       --primary: #06b6d4; /* 青色 */
-      --success-bg: rgba(16, 185, 129, 0.2);
-      --success-text: #34d399;
-      --error-bg: rgba(239, 68, 68, 0.2);
-      --error-text: #f87171;
-      --warning-bg: rgba(245, 158, 11, 0.2);
-      --warning-text: #fbbf24;
+      --success-bg: rgba(16, 185, 129, 0.2); --success-text: #34d399;
+      --error-bg: rgba(239, 68, 68, 0.2); --error-text: #f87171;
+      --warning-bg: rgba(245, 158, 11, 0.2); --warning-text: #fbbf24;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -264,15 +257,13 @@ function renderUnifiedPage(cfData, favicon, hostname, token) {
         background: var(--card-bg); border-radius: 16px; padding: 24px;
         box-shadow: 0 4px 20px rgba(0,0,0,0.4); margin-bottom: 20px; border: 1px solid var(--border-color);
     }
-
     h1 { color: var(--primary); font-size: 24px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
     .subtitle { font-size: 14px; opacity: 0.7; color: var(--text-muted); font-weight: normal; margin-top: 5px; }
 
-    /* 表单元素 (黑色风格) */
+    /* 表单元素 */
     textarea, input[type="text"] {
         width: 100%; background: var(--bg-color); border: 1px solid var(--border-color);
-        color: white; padding: 15px; border-radius: 12px; font-family: monospace; outline: none; transition: border 0.2s;
-        font-size: 14px;
+        color: white; padding: 15px; border-radius: 12px; font-family: monospace; outline: none; transition: border 0.2s; font-size: 14px;
     }
     textarea:focus, input[type="text"]:focus { border-color: var(--primary); }
     
@@ -282,15 +273,14 @@ function renderUnifiedPage(cfData, favicon, hostname, token) {
     }
     .btn:hover { opacity: 0.9; transform: translateY(-1px); }
     .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-    
     .btn-secondary { background: var(--border-color); color: white; }
 
-    /* 表格样式 */
+    /* 表格 */
     table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 14px; }
     th { text-align: left; padding: 12px; color: var(--primary); border-bottom: 2px solid var(--border-color); }
     td { padding: 12px; border-bottom: 1px solid var(--border-color); vertical-align: middle; }
 
-    /* === ProxyIP 特定样式 (适配暗黑) === */
+    /* === ProxyIP 结果卡片 === */
     .proxy-result-card {
         border-radius: 12px; padding: 20px; margin-top: 15px; border: 1px solid transparent; background: rgba(0,0,0,0.2);
     }
@@ -301,7 +291,7 @@ function renderUnifiedPage(cfData, favicon, hostname, token) {
     .res-header { font-size: 18px; font-weight: bold; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; }
     .res-details { color: var(--text-color); font-size: 14px; opacity: 0.9; }
 
-    /* API Docs 暗黑版 */
+    /* API Docs */
     .api-docs { background: var(--card-bg); border-radius: 16px; padding: 24px; margin-top: 40px; border: 1px solid var(--border-color); }
     .code-block { background: #0f172a; color: #a5b4fc; padding: 15px; border-radius: 8px; font-family: monospace; border: 1px solid var(--border-color); overflow-x: auto; margin: 10px 0; }
     .hl-verb { color: var(--primary); font-weight: bold; }
@@ -327,21 +317,17 @@ function renderUnifiedPage(cfData, favicon, hostname, token) {
   <div id="tracer-app" class="app-container active">
     <div class="card">
       <h1>📡 Link Tracer <span class="subtitle">Advanced Network Tools</span></h1>
-      
       <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(150px, 1fr));gap:15px;background:rgba(6,182,212,0.1);padding:15px;border-radius:12px;margin-bottom:20px;border:1px solid rgba(6,182,212,0.2);">
          <div><small style="color:var(--text-muted)">节点 (Colo)</small><br><strong style="color:var(--primary)">${cfData.colo}</strong></div>
          <div><small style="color:var(--text-muted)">位置 (Loc)</small><br><strong style="color:var(--primary)">${cfData.country}</strong></div>
          <div><small style="color:var(--text-muted)">本机 IP</small><br><strong style="color:var(--primary)">${cfData.ip}</strong></div>
       </div>
-
       <textarea id="trace-input" placeholder="输入目标地址 (例如: 1.1.1.1 或 google.com)，一行一个..."></textarea>
-      
       <div style="margin-top:20px">
         <button class="btn" onclick="startTrace()">🚀 开始探测</button>
         <button class="btn btn-secondary" onclick="document.getElementById('trace-body').innerHTML=''">🗑️ 清空表格</button>
       </div>
     </div>
-    
     <div class="card" id="trace-result" style="display:none">
       <table>
         <thead><tr><th>目标地址</th><th>TCP 延迟</th><th>物理位置</th><th>ISP / 机房</th></tr></thead>
@@ -356,26 +342,20 @@ function renderUnifiedPage(cfData, favicon, hostname, token) {
         <h1 style="justify-content:center; font-size:32px">Check ProxyIP</h1>
         <p class="subtitle">基于 Cloudflare Workers 的反代 IP 检测 (Dark Mode)</p>
       </div>
-
       <label style="display:block;margin-bottom:10px;font-weight:bold;color:var(--primary)">🔍 输入 ProxyIP 地址</label>
       <input type="text" id="proxy-input" placeholder="例如: 1.2.3.4:443 或 proxy.example.com">
-      
       <div style="margin-top:20px">
         <button id="proxy-btn" class="btn" onclick="checkProxy()" style="width:100%">开始检测</button>
       </div>
-
       <div id="proxy-result" style="margin-top: 20px;"></div>
     </div>
-
+    
     <div class="api-docs">
       <h2 style="color:var(--text-color); border-bottom:1px solid var(--border-color); padding-bottom:10px; margin-bottom:20px;">📚 API 文档</h2>
-      
       <h3 style="color:var(--primary); margin:20px 0 10px;">📍 检查 IP</h3>
       <div class="code-block"><span class="hl-verb">GET</span> /check?proxyip=<span class="hl-param">1.2.3.4:443</span></div>
-      
       <h3 style="color:var(--primary); margin:20px 0 10px;">💡 命令行示例</h3>
       <div class="code-block">curl "https://${hostname}/check?proxyip=1.2.3.4:443"</div>
-      
       <h3 style="color:var(--primary); margin:20px 0 10px;">🔗 JSON 响应</h3>
       <div class="code-block">
 {
@@ -387,28 +367,22 @@ function renderUnifiedPage(cfData, favicon, hostname, token) {
 }
       </div>
     </div>
-    
     <div style="text-align:center; margin-top:40px; color:var(--text-muted); font-size:12px;">
       © 2025 Check ProxyIP | Powered by Cloudflare Workers
     </div>
   </div>
 
   <script>
-    // --- 标签页切换逻辑 ---
+    // Tab 切换
     function switchTab(tab) {
         document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
         document.querySelector(\`.nav-btn[onclick="switchTab('\${tab}')"]\`).classList.add('active');
-        
         document.querySelectorAll('.app-container').forEach(el => el.classList.remove('active'));
-        
-        if (tab === 'tracer') {
-            document.getElementById('tracer-app').classList.add('active');
-        } else {
-            document.getElementById('proxy-app').classList.add('active');
-        }
+        if (tab === 'tracer') document.getElementById('tracer-app').classList.add('active');
+        else document.getElementById('proxy-app').classList.add('active');
     }
 
-    // --- Link Tracer 逻辑 ---
+    // Link Tracer Logic
     async function startTrace() {
         const input = document.getElementById('trace-input').value.trim();
         if(!input) return alert('请输入内容');
@@ -447,7 +421,7 @@ function renderUnifiedPage(cfData, favicon, hostname, token) {
         });
     }
 
-    // --- ProxyIP Checker 逻辑 ---
+    // ProxyIP Logic (已修复并发 + 自动清理 + 错误捕获)
     const TOKEN = "${token}";
     async function checkProxy() {
         const input = document.getElementById('proxy-input').value.trim();
@@ -464,11 +438,21 @@ function renderUnifiedPage(cfData, favicon, hostname, token) {
                 const r = await fetch(\`./resolve?domain=\${encodeURIComponent(input)}&token=\${TOKEN}\`);
                 const d = await r.json();
                 if(!d.success) throw new Error(d.error);
-                resDiv.innerHTML = \`<div class="proxy-result-card res-warning">
+                
+                // 创建加载提示卡片
+                const loadingId = 'loading-' + Math.random().toString(36).substr(2,9);
+                resDiv.innerHTML = \`<div id="\${loadingId}" class="proxy-result-card res-warning">
                     <div class="res-header">🔍 域名解析: \${input}</div>
-                    <div class="res-details">发现 \${d.ips.length} 个IP，正在检测...</div>
+                    <div class="res-details">发现 \${d.ips.length} 个IP，正在并发检测...</div>
                 </div>\`;
-                for(const ip of d.ips) await checkSingle(ip, resDiv, true);
+                
+                // 并发执行检测 (Promise.all)
+                const promises = d.ips.map(ip => checkSingle(ip, resDiv, true));
+                await Promise.allSettled(promises);
+                
+                // 检测完成后移除加载提示
+                const loadingCard = document.getElementById(loadingId);
+                if(loadingCard) loadingCard.remove();
             }
         } catch(e) {
             resDiv.innerHTML += \`<div class="proxy-result-card res-error">
@@ -481,26 +465,37 @@ function renderUnifiedPage(cfData, favicon, hostname, token) {
     }
 
     async function checkSingle(ip, container, append=false) {
-        const r = await fetch(\`./check?proxyip=\${encodeURIComponent(ip)}&token=\${TOKEN}\`);
-        const d = await r.json();
-        
         let html = "";
-        if(d.success) {
-            html = \`<div class="proxy-result-card res-success">
-               <div class="res-header">✅ 有效: \${d.proxyIP}</div>
-               <div class="res-details">
-                 <span style="margin-right:10px">🔌 端口: \${d.portRemote}</span>
-                 <span style="margin-right:10px">🏢 机房: \${d.colo}</span>
-                 <span>⚡ 延迟: \${d.responseTime}ms</span>
-               </div>
-             </div>\`;
-        } else {
-            html = \`<div class="proxy-result-card res-error">
-               <div class="res-header">❌ 无效: \${ip}</div>
-               <div class="res-details">\${d.message||'无法连接'}</div>
+        try {
+            const r = await fetch(\`./check?proxyip=\${encodeURIComponent(ip)}&token=\${TOKEN}\`);
+            // 先读文本，防止 JSON.parse 报错
+            const text = await r.text();
+            let d;
+            try { d = JSON.parse(text); } catch(e) { throw new Error("Worker Error: " + text.substring(0, 50)); }
+            
+            if(d.success) {
+                html = \`<div class="proxy-result-card res-success">
+                   <div class="res-header">✅ 有效: \${d.proxyIP}</div>
+                   <div class="res-details">
+                     <span style="margin-right:10px">🔌 端口: \${d.portRemote}</span>
+                     <span style="margin-right:10px">🏢 机房: \${d.colo}</span>
+                     <span>⚡ 延迟: \${d.responseTime}ms</span>
+                   </div>
+                 </div>\`;
+            } else {
+                html = \`<div class="proxy-result-card res-error">
+                   <div class="res-header">❌ 无效: \${ip}</div>
+                   <div class="res-details">\${d.message||'无法连接'}</div>
+                 </div>\`;
+            }
+        } catch(err) {
+            // 捕获网络错误或解析错误，避免崩坏
+             html = \`<div class="proxy-result-card res-error">
+               <div class="res-header">❌ 检测失败: \${ip}</div>
+               <div class="res-details">\${err.message}</div>
              </div>\`;
         }
-        
+
         if(append) {
             const div = document.createElement('div'); div.innerHTML = html;
             container.appendChild(div);
