@@ -1150,9 +1150,6 @@ async function HTML(hostname, 网站图标, token) {
           </button>
         </div>
       </div>
-      
-      <div id="result" class="result-section"></div>
-    </div>
     
     <div class="api-docs" style="margin-top: 50px;">
       <h2 class="section-title">📚 API 文档</h2>
@@ -1167,11 +1164,10 @@ async function HTML(hostname, 网站图标, token) {
       
       <h3 style="color: var(--text-primary); margin: 24px 0 16px;">💡 使用示例</h3>
       <div class="code-block">
-proxyip.hk.fxxk.dedyn.io
-proxyip.jp.fxxk.dedyn.io
-curl "https://${hostname}/check?proxyip=1.2.3.4:443"
+proxyip.hk.fxxk.dedyn.io<br>
+proxyip.jp.fxxk.dedyn.io<br>
+curl "https://${hostname}/check?proxyip=1.2.3.4:443"<br>
 curl "https://${hostname}/check?proxyip=1.2.3.4:443&token=erqt"
-
       </div>
 
       <h3 style="color: var(--text-primary); margin: 24px 0 16px;">🔗 响应Json格式</h3>
@@ -1717,4 +1713,5 @@ curl "https://${hostname}/check?proxyip=1.2.3.4:443&token=erqt"
     headers: { "content-type": "text/html;charset=UTF-8" }
   });
 }
+
 
