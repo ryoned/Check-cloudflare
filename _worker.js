@@ -169,7 +169,10 @@ export default {
         const URLs = await 整理(env[envKey]);
         const URL = URLs[Math.floor(Math.random() * URLs.length)];
         return envKey === 'URL302' ? Response.redirect(URL, 302) : fetch(new Request(URL, request));
-      } else if (env.TOKEN && url.searchParams.get('token') !== 永久TOKEN) {
+      } 
+      
+      // === 修改处 1：只有当 Token 存在且参数不匹配时，才显示 Nginx 伪装页 ===
+      else if (env.TOKEN && url.searchParams.get('token') !== 永久TOKEN) {
         return new Response(await nginx(), {
           headers: {
             'Content-Type': 'text/html; charset=UTF-8',
@@ -178,7 +181,8 @@ export default {
       } else if (path.toLowerCase() === '/favicon.ico') {
         return Response.redirect(网站图标, 302);
       }
-      // 直接返回HTML页面，传递 token
+      
+      // === 修改处 2：将 永久TOKEN 传递给 HTML 函数 ===
       return await HTML(hostname, 网站图标, 永久TOKEN);
     }
   }
@@ -1452,7 +1456,7 @@ curl "https://${hostname}/check?proxyip=1.2.3.4:443&token=erqt"
     
     // 检查单个IP
     async function checkSingleIP(proxyip, resultDiv) {
-      const response = await fetch(\`./check?proxyip=\${encodeURIComponent(proxyip)}\`);
+      const response = await fetch(\`./check?proxyip=\${encodeURIComponent(proxyip)}&token=${token}\`);
       const data = await response.json();
       
       if (data.success) {
@@ -1697,7 +1701,7 @@ curl "https://${hostname}/check?proxyip=1.2.3.4:443&token=erqt"
     // 检查IP状态
     async function checkIPStatus(ip) {
       try {
-        const response = await fetch(\`./check?proxyip=\${encodeURIComponent(ip)}\`);
+        const response = await fetch(\`./check?proxyip=\${encodeURIComponent(ip)}&token=${token}\`);
         const data = await response.json();
         return data;
       } catch (error) {
@@ -1713,6 +1717,3 @@ curl "https://${hostname}/check?proxyip=1.2.3.4:443&token=erqt"
     headers: { "content-type": "text/html;charset=UTF-8" }
   });
 }
-
-
-
