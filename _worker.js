@@ -423,7 +423,7 @@ function renderUnifiedPage(cfData, favicon, hostname, token) {
         });
     }
 
-    // ProxyIP Logic (并发+详情卡片还原)
+    // ProxyIP Logic (并发+详情卡片还原+结果排序)
     const TOKEN = "${token}";
     async function checkProxy() {
         const input = document.getElementById('proxy-input').value.trim();
@@ -444,8 +444,7 @@ function renderUnifiedPage(cfData, favicon, hostname, token) {
                 const d = await r.json();
                 if(!d.success) throw new Error(d.error);
                 
-                // 2. 渲染详情汇总卡片 (还原用户要求的字段)
-                // 尝试解析端口
+                // 2. 渲染详情汇总卡片 (显示检测中)
                 let port = 443;
                 if(input.includes(':')) port = input.split(':')[1];
                 
@@ -461,23 +460,40 @@ function renderUnifiedPage(cfData, favicon, hostname, token) {
                    </div>
                 </div>\`;
 
-                // 3. 并发检测
-                let validCount = 0;
-                let firstColo = "";
+                // 3. 并发检测 (不立即渲染)
+                const promises = d.ips.map(ip => checkSingle(ip, null)); // 传 null 不渲染，只返回数据
+                const results = await Promise.all(promises);
                 
-                // 使用 map 映射所有请求
-                const checks = d.ips.map(async (ip) => {
-                    const res = await checkSingle(ip, resDiv, true);
-                    if(res && res.success) {
-                        validCount++;
-                        if(!firstColo) firstColo = res.colo;
+                // 4. 对结果进行排序
+                results.sort((a, b) => {
+                    // 确保数据安全
+                    const da = a.data || { success: false, responseTime: 99999 };
+                    const db = b.data || { success: false, responseTime: 99999 };
+                    
+                    // 优先级1: 成功的排前面
+                    if (da.success && !db.success) return -1;
+                    if (!da.success && db.success) return 1;
+                    
+                    // 优先级2: 成功的里面，延迟小的排前面
+                    if (da.success && db.success) {
+                        return (da.responseTime || 99999) - (db.responseTime || 99999);
                     }
-                    return res;
+                    
+                    return 0; // 都是失败，保持原样
+                });
+
+                // 5. 渲染排序后的结果
+                results.forEach(r => {
+                    const div = document.createElement('div');
+                    div.innerHTML = r.html;
+                    resDiv.appendChild(div);
                 });
                 
-                await Promise.allSettled(checks);
+                // 6. 更新汇总卡片状态
+                // 重新计算有效数量和最佳机房
+                const validCount = results.filter(r => r.data && r.data.success).length;
+                const bestColo = results.find(r => r.data && r.data.success)?.data.colo || "无有效机房";
                 
-                // 4. 更新汇总卡片状态
                 const summaryCard = document.getElementById('main-summary');
                 const title = document.getElementById('summary-title');
                 const coloSpan = document.getElementById('summary-colo');
@@ -492,9 +508,7 @@ function renderUnifiedPage(cfData, favicon, hostname, token) {
                     summaryCard.className = "proxy-result-card res-error";
                     title.innerText = "❌ 所有IP无效";
                 }
-                
-                if(firstColo) coloSpan.innerText = firstColo;
-                else coloSpan.innerText = "无有效机房";
+                coloSpan.innerText = bestColo;
             }
         } catch(e) {
             resDiv.innerHTML += \`<div class="proxy-result-card res-error">
@@ -539,12 +553,15 @@ function renderUnifiedPage(cfData, favicon, hostname, token) {
              </div>\`;
         }
 
-        if(append) {
-            const div = document.createElement('div'); div.innerHTML = html;
-            container.appendChild(div);
-        } else container.innerHTML = html;
+        // 支持只返回数据不渲染
+        if(container) {
+            if(append) {
+                const div = document.createElement('div'); div.innerHTML = html;
+                container.appendChild(div);
+            } else container.innerHTML = html;
+        }
         
-        return resultData;
+        return { data: resultData, html: html };
     }
   </script>
 </body>
