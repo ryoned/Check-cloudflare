@@ -1,5 +1,8 @@
 import { connect } from "cloudflare:sockets";
+
+// 全局变量
 let 临时TOKEN, 永久TOKEN;
+
 export default {
   async fetch(request, env, ctx) {
     const 网站图标 = env.ICO || 'https://cf-assets.www.cloudflare.com/dzlvafdwdttg/19kSkLSfWtDcspvQI5pit4/c5630cf25d589a0de91978ca29486259/performance-acceleration-bolt.svg';
@@ -9,6 +12,8 @@ export default {
     const hostname = url.hostname;
     const currentDate = new Date();
     const timestamp = Math.ceil(currentDate.getTime() / (1000 * 60 * 31)); // 每31分钟一个时间戳
+    
+    // 生成 Token
     临时TOKEN = await 双重哈希(url.hostname + timestamp + UA);
     永久TOKEN = env.TOKEN || 临时TOKEN;
 
@@ -49,6 +54,7 @@ export default {
         }
       });
     } else if (path.toLowerCase() === '/resolve') {
+      // 检查 Token
       if (!url.searchParams.has('token') || (url.searchParams.get('token') !== 临时TOKEN) && (url.searchParams.get('token') !== 永久TOKEN)) {
         return new Response(JSON.stringify({
           status: "error",
@@ -172,58 +178,62 @@ export default {
       } else if (path.toLowerCase() === '/favicon.ico') {
         return Response.redirect(网站图标, 302);
       }
-      // 直接返回HTML页面，路径解析交给前端处理
-      return await HTML(hostname, 网站图标);
+      // 直接返回HTML页面，传递 token
+      return await HTML(hostname, 网站图标, 临时TOKEN);
     }
   }
 };
 
-// 新增域名解析函数
+// ============================================
+// 修复版域名解析函数 (使用 Google DNS 和 AliDNS)
+// ============================================
 async function resolveDomain(domain) {
   domain = domain.includes(':') ? domain.split(':')[0] : domain;
-  try {
-    // 并发请求IPv4和IPv6记录
-    const [ipv4Response, ipv6Response] = await Promise.all([
-      fetch(`https://1.1.1.1/dns-query?name=${domain}&type=A`, {
-        headers: { 'Accept': 'application/dns-json' }
-      }),
-      fetch(`https://1.1.1.1/dns-query?name=${domain}&type=AAAA`, {
-        headers: { 'Accept': 'application/dns-json' }
-      })
-    ]);
+  
+  // 避免使用 Cloudflare 自身的 1.1.1.1，防止 1016 Origin DNS Error
+  const endpoints = [
+    { url: 'https://dns.google/resolve', name: 'Google DNS' },
+    { url: 'https://223.5.5.5/resolve', name: 'AliDNS' }
+  ];
 
-    const [ipv4Data, ipv6Data] = await Promise.all([
-      ipv4Response.json(),
-      ipv6Response.json()
-    ]);
+  for (const endpoint of endpoints) {
+    try {
+      // 并发请求 IPv4 和 IPv6 记录
+      const [ipv4Res, ipv6Res] = await Promise.all([
+        fetch(`${endpoint.url}?name=${domain}&type=A`),
+        fetch(`${endpoint.url}?name=${domain}&type=AAAA`)
+      ]);
 
-    const ips = [];
+      if (!ipv4Res.ok || !ipv6Res.ok) continue;
 
-    // 添加IPv4地址
-    if (ipv4Data.Answer) {
-      const ipv4Addresses = ipv4Data.Answer
-        .filter(record => record.type === 1) // A记录
-        .map(record => record.data);
-      ips.push(...ipv4Addresses);
+      const [ipv4Data, ipv6Data] = await Promise.all([
+        ipv4Res.json(),
+        ipv6Res.json()
+      ]);
+
+      const ips = [];
+      
+      // Google 和 AliDNS 的 JSON 格式通用处理
+      if (ipv4Data.Answer) {
+        ipv4Data.Answer.filter(r => r.type === 1).forEach(r => ips.push(r.data));
+      }
+      if (ipv6Data.Answer) {
+        ipv6Data.Answer.filter(r => r.type === 28).forEach(r => ips.push(`[${r.data}]`));
+      }
+
+      // 如果当前接口找到了 IP，直接返回
+      if (ips.length > 0) return ips;
+      
+    } catch (error) {
+      console.warn(`${endpoint.name} 解析失败，尝试下一个...`, error);
+      continue;
     }
-
-    // 添加IPv6地址
-    if (ipv6Data.Answer) {
-      const ipv6Addresses = ipv6Data.Answer
-        .filter(record => record.type === 28) // AAAA记录
-        .map(record => `[${record.data}]`); // IPv6地址用方括号包围
-      ips.push(...ipv6Addresses);
-    }
-
-    if (ips.length === 0) {
-      throw new Error('No A or AAAA records found');
-    }
-
-    return ips;
-  } catch (error) {
-    throw new Error(`DNS resolution failed: ${error.message}`);
   }
+
+  throw new Error('无法解析域名: 所有 DNS 服务均未返回有效 IP');
 }
+
+// -------------------------------------------------------------
 
 async function CheckProxyIP(proxyIP, colo = 'CF') {
   let portRemote = 443;
@@ -244,40 +254,34 @@ async function CheckProxyIP(proxyIP, colo = 'CF') {
   });
 
   try {
-    // 构建HTTP GET请求
     const httpRequest =
       "GET /cdn-cgi/trace HTTP/1.1\r\n" +
       "Host: speed.cloudflare.com\r\n" +
       "User-Agent: CheckProxyIP/cmliu\r\n" +
       "Connection: close\r\n\r\n";
 
-    // 发送HTTP请求
     const writer = tcpSocket.writable.getWriter();
     await writer.write(new TextEncoder().encode(httpRequest));
     writer.releaseLock();
 
-    // 读取HTTP响应
     const reader = tcpSocket.readable.getReader();
     let responseData = new Uint8Array(0);
     let receivedData = false;
 
-    // 读取所有可用数据
     while (true) {
       const { value, done } = await Promise.race([
         reader.read(),
-        new Promise(resolve => setTimeout(() => resolve({ done: true }), 5000)) // 5秒超时
+        new Promise(resolve => setTimeout(() => resolve({ done: true }), 5000))
       ]);
 
       if (done) break;
       if (value) {
         receivedData = true;
-        // 合并数据
         const newData = new Uint8Array(responseData.length + value.length);
         newData.set(responseData);
         newData.set(value, responseData.length);
         responseData = newData;
 
-        // 检查是否接收到完整响应
         const responseText = new TextDecoder().decode(responseData);
         if (responseText.includes("\r\n\r\n") &&
           (responseText.includes("Connection: close") || responseText.includes("content-length"))) {
@@ -287,12 +291,10 @@ async function CheckProxyIP(proxyIP, colo = 'CF') {
     }
     reader.releaseLock();
 
-    // 解析HTTP响应
     const responseText = new TextDecoder().decode(responseData);
     const statusMatch = responseText.match(/^HTTP\/\d\.\d\s+(\d+)/i);
     const statusCode = statusMatch ? parseInt(statusMatch[1]) : null;
 
-    // 判断是否成功
     function isValidProxyResponse(responseText, responseData) {
       const statusMatch = responseText.match(/^HTTP\/\d\.\d\s+(\d+)/i);
       const statusCode = statusMatch ? parseInt(statusMatch[1]) : null;
@@ -302,16 +304,15 @@ async function CheckProxyIP(proxyIP, colo = 'CF') {
 
       return statusCode !== null && looksLikeCloudflare && isExpectedError && hasBody;
     }
-    // 关闭连接
+    
     await tcpSocket.close();
 
     const isSuccessful = isValidProxyResponse(responseText, responseData);
     if (isSuccessful) {
-      console.log(`成功通过ProxyIP ${proxyIP}:${portRemote} 连接到Cloudflare，状态码: ${statusCode} 响应内容: ${responseText}`);
+      console.log(`成功通过ProxyIP ${proxyIP}:${portRemote} 连接到Cloudflare，状态码: ${statusCode}`);
       const tls握手 = await 验证反代IP(proxyIP, portRemote);
 
-      // 构建JSON响应
-      const jsonResponse = {
+      return {
         success: tls握手[0],
         proxyIP: proxyIP,
         portRemote: portRemote,
@@ -320,9 +321,8 @@ async function CheckProxyIP(proxyIP, colo = 'CF') {
         message: tls握手[1],
         timestamp: new Date().toISOString(),
       };
-      return jsonResponse;
     } else {
-      console.log(`无法通过ProxyIP ${proxyIP}:${portRemote} 访问Cloudflare，状态码: ${statusCode} 响应内容: ${responseText}`);
+      console.log(`无法通过ProxyIP ${proxyIP}:${portRemote} 访问Cloudflare`);
       return {
         success: false,
         proxyIP: proxyIP,
@@ -334,7 +334,6 @@ async function CheckProxyIP(proxyIP, colo = 'CF') {
       };
     }
   } catch (error) {
-    // 连接失败，返回失败的JSON
     return {
       success: false,
       proxyIP: -1,
@@ -353,21 +352,17 @@ async function 整理(内容) {
   const 整理数组 = 地址数组.filter((item, index) => {
     return item !== '' && 地址数组.indexOf(item) === index;
   });
-
   return 整理数组;
 }
 
 async function 双重哈希(文本) {
   const 编码器 = new TextEncoder();
-
   const 第一次哈希 = await crypto.subtle.digest('MD5', 编码器.encode(文本));
   const 第一次哈希数组 = Array.from(new Uint8Array(第一次哈希));
   const 第一次十六进制 = 第一次哈希数组.map(字节 => 字节.toString(16).padStart(2, '0')).join('');
-
   const 第二次哈希 = await crypto.subtle.digest('MD5', 编码器.encode(第一次十六进制.slice(7, 27)));
   const 第二次哈希数组 = Array.from(new Uint8Array(第二次哈希));
   const 第二次十六进制 = 第二次哈希数组.map(字节 => 字节.toString(16).padStart(2, '0')).join('');
-
   return 第二次十六进制.toLowerCase();
 }
 
@@ -375,24 +370,21 @@ async function 验证反代IP(反代IP地址, 指定端口) {
   const 最大重试次数 = 4;
   let 最后错误 = null;
   const 开始时间 = performance.now();
-  // 对于连接级别的重试，每次都重新建立连接
+  
   for (let 重试次数 = 0; 重试次数 < 最大重试次数; 重试次数++) {
     let TCP接口 = null;
     let 传输数据 = null;
     let 读取数据 = null;
 
     try {
-      // 每次重试都重新建立连接
-      const 连接超时 = 1000 + (重试次数 * 500); // 递增超时时间
+      const 连接超时 = 1000 + (重试次数 * 500);
       TCP接口 = await 带超时连接({ hostname: 反代IP地址, port: 指定端口 }, 连接超时);
 
       传输数据 = TCP接口.writable.getWriter();
       读取数据 = TCP接口.readable.getReader();
 
-      // 发送TLS握手
       await 传输数据.write(构建TLS握手());
 
-      // 读取响应，超时时间也递增
       const 读取超时 = 连接超时;
       const { value: 返回数据, 超时 } = await 带超时读取(读取数据, 读取超时);
 
@@ -406,9 +398,7 @@ async function 验证反代IP(反代IP地址, 指定端口) {
         throw new Error(最后错误);
       }
 
-      // 检查TLS响应
       if (返回数据[0] === 0x16) {
-        // 成功，清理资源
         try {
           读取数据.cancel();
           TCP接口.close();
@@ -422,54 +412,30 @@ async function 验证反代IP(反代IP地址, 指定端口) {
       }
 
     } catch (error) {
-      // 记录具体错误
       最后错误 = `第${重试次数 + 1}次重试失败: ${error.message || error.toString()}`;
-
-      // 判断是否应该继续重试
       const 错误信息 = error.message || error.toString();
       const 不应重试的错误 = [
-        '连接被拒绝',
-        'Connection refused',
-        '网络不可达',
-        'Network unreachable',
-        '主机不可达',
-        'Host unreachable'
+        '连接被拒绝', 'Connection refused', '网络不可达', 'Network unreachable', '主机不可达', 'Host unreachable'
       ];
 
-      const 应该停止重试 = 不应重试的错误.some(errorPattern =>
-        错误信息.toLowerCase().includes(errorPattern.toLowerCase())
-      );
-
-      if (应该停止重试) {
+      if (不应重试的错误.some(p => 错误信息.toLowerCase().includes(p.toLowerCase()))) {
         最后错误 = `连接失败，无需重试: ${错误信息}`;
-        break; // 跳出重试循环
+        break;
       }
 
     } finally {
-      // 确保每次重试后都清理资源
       try {
-        if (读取数据) {
-          读取数据.cancel();
-        }
-        if (TCP接口) {
-          TCP接口.close();
-        }
-      } catch (cleanupError) {
-        console.log('清理资源时出错:', cleanupError);
-      }
-
-      // 等待资源完全释放
+        if (读取数据) 读取数据.cancel();
+        if (TCP接口) TCP接口.close();
+      } catch (cleanupError) {}
       await new Promise(resolve => setTimeout(resolve, 100));
     }
 
-    // 如果不是最后一次重试，等待一段时间再重试
     if (重试次数 < 最大重试次数 - 1) {
-      const 等待时间 = 200 + (重试次数 * 300); // 递增等待时间
+      const 等待时间 = 200 + (重试次数 * 300);
       await new Promise(resolve => setTimeout(resolve, 等待时间));
     }
   }
-
-  // 所有重试都失败了
   return [false, 最后错误 || '连接验证失败', -1];
 }
 
@@ -488,10 +454,10 @@ async function 带超时连接({ hostname, port }, 超时时间) {
         setTimeout(() => reject(new Error("连接超时")), 超时时间)
       ),
     ]);
-    return TCP接口; // ✅ 连接成功
+    return TCP接口; 
   } catch (err) {
-    TCP接口.close?.(); // 确保连接关闭
-    throw err; // ⛔ 抛出错误由调用者处理
+    TCP接口.close?.(); 
+    throw err; 
   }
 }
 function 带超时读取(reader, 超时) {
@@ -535,7 +501,8 @@ async function nginx() {
   return text;
 }
 
-async function HTML(hostname, 网站图标) {
+// 修改 HTML 函数，接收 token 参数
+async function HTML(hostname, 网站图标, token) {
   // 首页 HTML
   const html = `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -1619,8 +1586,8 @@ curl "https://${hostname}/check?proxyip=1.2.3.4:443"
         cleanDomain = domain.split(':')[0];
       }
       
-      // 解析域名
-      const resolveResponse = await fetch(\`./resolve?domain=\${encodeURIComponent(cleanDomain)}&token=${临时TOKEN}\`);
+      // 解析域名 - 这里的 token 是由 JS 直接插入的
+      const resolveResponse = await fetch(\`./resolve?domain=\${encodeURIComponent(cleanDomain)}&token=${token}\`);
       const resolveData = await resolveResponse.json();
       
       if (!resolveData.success) {
@@ -1771,7 +1738,8 @@ curl "https://${hostname}/check?proxyip=1.2.3.4:443"
     async function getIPInfo(ip) {
       try {
         const cleanIP = ip.replace(/[\\[\\]]/g, '');
-        const response = await fetch(\`./ip-info?ip=\${encodeURIComponent(cleanIP)}&token=${临时TOKEN}\`);
+        // 这里的 token 也是 JS 插入的
+        const response = await fetch(\`./ip-info?ip=\${encodeURIComponent(cleanIP)}&token=${token}\`);
         const data = await response.json();
         return data;
       } catch (error) {
