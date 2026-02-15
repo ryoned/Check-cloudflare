@@ -169,7 +169,7 @@ export default {
         const URLs = await 整理(env[envKey]);
         const URL = URLs[Math.floor(Math.random() * URLs.length)];
         return envKey === 'URL302' ? Response.redirect(URL, 302) : fetch(new Request(URL, request));
-      } else if (env.TOKEN) {
+      } else if (env.TOKEN && url.searchParams.get('token') !== 永久TOKEN) {
         return new Response(await nginx(), {
           headers: {
             'Content-Type': 'text/html; charset=UTF-8',
@@ -179,7 +179,7 @@ export default {
         return Response.redirect(网站图标, 302);
       }
       // 直接返回HTML页面，传递 token
-      return await HTML(hostname, 网站图标, 临时TOKEN);
+      return await HTML(hostname, 网站图标, 永久TOKEN);
     }
   }
 };
@@ -1713,5 +1713,6 @@ curl "https://${hostname}/check?proxyip=1.2.3.4:443&token=erqt"
     headers: { "content-type": "text/html;charset=UTF-8" }
   });
 }
+
 
 
