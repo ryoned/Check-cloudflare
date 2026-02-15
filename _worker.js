@@ -207,7 +207,7 @@ async function CheckProxyIP(proxyIP, colo) {
 async function 双重哈希(t){const e=new TextEncoder,n=await crypto.subtle.digest("MD5",e.encode(t)),o=Array.from(new Uint8Array(n)).map(t=>t.toString(16).padStart(2,"0")).join(""),a=await crypto.subtle.digest("MD5",e.encode(o.slice(7,27))),r=Array.from(new Uint8Array(a));return r.map(t=>t.toString(16).padStart(2,"0")).join("").toLowerCase()}
 
 // ============================================
-// 前端 HTML (统一暗黑风格 + 并发修复)
+// 前端 HTML
 // ============================================
 function renderUnifiedPage(cfData, favicon, hostname, token) {
   return `<!DOCTYPE html>
@@ -223,7 +223,7 @@ function renderUnifiedPage(cfData, favicon, hostname, token) {
     :root {
       --bg-color: #0f172a; --card-bg: #1e293b; --border-color: #334155;
       --text-color: #f1f5f9; --text-muted: #94a3b8;
-      --primary: #06b6d4; /* 青色 */
+      --primary: #06b6d4;
       --success-bg: rgba(16, 185, 129, 0.2); --success-text: #34d399;
       --error-bg: rgba(239, 68, 68, 0.2); --error-text: #f87171;
       --warning-bg: rgba(245, 158, 11, 0.2); --warning-text: #fbbf24;
@@ -288,8 +288,9 @@ function renderUnifiedPage(cfData, favicon, hostname, token) {
     .res-error { border-color: var(--error-text); background: var(--error-bg); color: var(--error-text); }
     .res-warning { border-color: var(--warning-text); background: var(--warning-bg); color: var(--warning-text); }
     
-    .res-header { font-size: 18px; font-weight: bold; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; }
-    .res-details { color: var(--text-color); font-size: 14px; opacity: 0.9; }
+    .res-header { font-size: 18px; font-weight: bold; margin-bottom: 15px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px; }
+    .res-details { color: var(--text-color); font-size: 14px; line-height: 1.8; }
+    .res-details strong { color: var(--primary); margin-right: 8px; }
 
     /* API Docs */
     .api-docs { background: var(--card-bg); border-radius: 16px; padding: 24px; margin-top: 40px; border: 1px solid var(--border-color); }
@@ -347,6 +348,7 @@ function renderUnifiedPage(cfData, favicon, hostname, token) {
       <div style="margin-top:20px">
         <button id="proxy-btn" class="btn" onclick="checkProxy()" style="width:100%">开始检测</button>
       </div>
+      <div id="summary-card-slot" style="margin-top:20px;"></div>
       <div id="proxy-result" style="margin-top: 20px;"></div>
     </div>
     
@@ -421,38 +423,78 @@ function renderUnifiedPage(cfData, favicon, hostname, token) {
         });
     }
 
-    // ProxyIP Logic (已修复并发 + 自动清理 + 错误捕获)
+    // ProxyIP Logic (并发+详情卡片还原)
     const TOKEN = "${token}";
     async function checkProxy() {
         const input = document.getElementById('proxy-input').value.trim();
         if(!input) return alert('请输入 IP');
         const btn = document.getElementById('proxy-btn');
         const resDiv = document.getElementById('proxy-result');
+        const summaryDiv = document.getElementById('summary-card-slot');
         
-        btn.disabled = true; btn.innerText = "检测中..."; resDiv.innerHTML = "";
+        btn.disabled = true; btn.innerText = "检测中..."; 
+        resDiv.innerHTML = ""; summaryDiv.innerHTML = "";
         
         try {
             const isIP = /^[0-9\\.:\\[\\]]+$/.test(input);
             if(isIP) await checkSingle(input, resDiv);
             else {
+                // 1. 解析域名
                 const r = await fetch(\`./resolve?domain=\${encodeURIComponent(input)}&token=\${TOKEN}\`);
                 const d = await r.json();
                 if(!d.success) throw new Error(d.error);
                 
-                // 创建加载提示卡片
-                const loadingId = 'loading-' + Math.random().toString(36).substr(2,9);
-                resDiv.innerHTML = \`<div id="\${loadingId}" class="proxy-result-card res-warning">
-                    <div class="res-header">🔍 域名解析: \${input}</div>
-                    <div class="res-details">发现 \${d.ips.length} 个IP，正在并发检测...</div>
+                // 2. 渲染详情汇总卡片 (还原用户要求的字段)
+                // 尝试解析端口
+                let port = 443;
+                if(input.includes(':')) port = input.split(':')[1];
+                
+                summaryDiv.innerHTML = \`
+                <div class="proxy-result-card res-warning" id="main-summary">
+                   <h3 class="res-header" id="summary-title">🔍 域名解析结果</h3>
+                   <div class="res-details">
+                      <p><strong>🌐 ProxyIP 域名:</strong> \${input}</p>
+                      <p><strong>🔌 端口:</strong> \${port}</p>
+                      <p><strong>🏢 机房信息:</strong> <span id="summary-colo">检测中...</span></p>
+                      <p><strong>📋 发现IP:</strong> \${d.ips.length} 个</p>
+                      <p><strong>🕒 解析时间:</strong> \${new Date().toLocaleString()}</p>
+                   </div>
                 </div>\`;
+
+                // 3. 并发检测
+                let validCount = 0;
+                let firstColo = "";
                 
-                // 并发执行检测 (Promise.all)
-                const promises = d.ips.map(ip => checkSingle(ip, resDiv, true));
-                await Promise.allSettled(promises);
+                // 使用 map 映射所有请求
+                const checks = d.ips.map(async (ip) => {
+                    const res = await checkSingle(ip, resDiv, true);
+                    if(res && res.success) {
+                        validCount++;
+                        if(!firstColo) firstColo = res.colo;
+                    }
+                    return res;
+                });
                 
-                // 检测完成后移除加载提示
-                const loadingCard = document.getElementById(loadingId);
-                if(loadingCard) loadingCard.remove();
+                await Promise.allSettled(checks);
+                
+                // 4. 更新汇总卡片状态
+                const summaryCard = document.getElementById('main-summary');
+                const title = document.getElementById('summary-title');
+                const coloSpan = document.getElementById('summary-colo');
+                
+                if(validCount === d.ips.length) {
+                    summaryCard.className = "proxy-result-card res-success";
+                    title.innerText = "✅ 所有IP有效 (" + validCount + "/" + d.ips.length + ")";
+                } else if(validCount > 0) {
+                    summaryCard.className = "proxy-result-card res-warning";
+                    title.innerText = "⚠️ 部分IP有效 (" + validCount + "/" + d.ips.length + ")";
+                } else {
+                    summaryCard.className = "proxy-result-card res-error";
+                    title.innerText = "❌ 所有IP无效";
+                }
+                
+                if(firstColo) coloSpan.innerText = firstColo;
+                else coloSpan.innerText = "无有效机房";
             }
         } catch(e) {
             resDiv.innerHTML += \`<div class="proxy-result-card res-error">
@@ -466,12 +508,14 @@ function renderUnifiedPage(cfData, favicon, hostname, token) {
 
     async function checkSingle(ip, container, append=false) {
         let html = "";
+        let resultData = null;
         try {
             const r = await fetch(\`./check?proxyip=\${encodeURIComponent(ip)}&token=\${TOKEN}\`);
-            // 先读文本，防止 JSON.parse 报错
             const text = await r.text();
             let d;
-            try { d = JSON.parse(text); } catch(e) { throw new Error("Worker Error: " + text.substring(0, 50)); }
+            try { d = JSON.parse(text); } catch(e) { throw new Error("Worker Error"); }
+            
+            resultData = d;
             
             if(d.success) {
                 html = \`<div class="proxy-result-card res-success">
@@ -489,7 +533,6 @@ function renderUnifiedPage(cfData, favicon, hostname, token) {
                  </div>\`;
             }
         } catch(err) {
-            // 捕获网络错误或解析错误，避免崩坏
              html = \`<div class="proxy-result-card res-error">
                <div class="res-header">❌ 检测失败: \${ip}</div>
                <div class="res-details">\${err.message}</div>
@@ -500,6 +543,8 @@ function renderUnifiedPage(cfData, favicon, hostname, token) {
             const div = document.createElement('div'); div.innerHTML = html;
             container.appendChild(div);
         } else container.innerHTML = html;
+        
+        return resultData;
     }
   </script>
 </body>
