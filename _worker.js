@@ -1154,74 +1154,6 @@ async function HTML(hostname, 网站图标, token) {
       <div id="result" class="result-section"></div>
     </div>
     
-    <div class="api-docs">
-      <h2 class="section-title">🤔 什么是 ProxyIP ？</h2>
-      
-      <h3 style="color: var(--text-primary); margin: 24px 0 16px;">📖 ProxyIP 概念</h3>
-      <p style="margin-bottom: 16px; line-height: 1.8; color: var(--text-secondary);">
-        在 Cloudflare Workers 环境中，ProxyIP 特指那些能够成功代理连接到 Cloudflare 服务的第三方 IP 地址。
-      </p>
-      
-      <h3 style="color: var(--text-primary); margin: 24px 0 16px;">🔧 技术原理</h3>
-      <p style="margin-bottom: 16px; line-height: 1.8; color: var(--text-secondary);">
-        根据 Cloudflare Workers 的 <a href="https://developers.cloudflare.com/workers/runtime-apis/tcp-sockets/" target="_blank" style="color: var(--primary-color); text-decoration: none;">TCP Sockets 官方文档</a> 说明，存在以下技术限制：
-      </p>
-      
-      <div class="code-block" style="background: #fff3cd; color: #856404; border-left: 4px solid var(--warning-color);">
-        ⚠️ Outbound TCP sockets to <a href="https://www.cloudflare.com/ips/" target="_blank" >Cloudflare IP ranges ↗</a>  are temporarily blocked, but will be re-enabled shortly.
-      </div>
-      
-      <p style="margin: 16px 0; line-height: 1.8; color: var(--text-secondary);">
-        这意味着 Cloudflare Workers 无法直接连接到 Cloudflare 自有的 IP 地址段。为了解决这个限制，需要借助第三方云服务商的服务器作为"跳板"：
-      </p>
-      
-      <div style="background: var(--bg-secondary); padding: 20px; border-radius: var(--border-radius-sm); margin: 20px 0;">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 16px;">
-          <div style="background: #e3f2fd; padding: 12px; border-radius: 8px; text-align: center; flex: 1; min-width: 120px;">
-            <div style="font-weight: 600; color: #1976d2;">Cloudflare Workers</div>
-            <div style="font-size: 0.9rem; color: var(--text-secondary);">发起请求</div>
-          </div>
-          <div style="color: var(--primary-color); font-size: 1.5rem;">→</div>
-          <div style="background: #f3e5f5; padding: 12px; border-radius: 8px; text-align: center; flex: 1; min-width: 120px;">
-            <div style="font-weight: 600; color: #7b1fa2;">ProxyIP 服务器</div>
-            <div style="font-size: 0.9rem; color: var(--text-secondary);">第三方代理</div>
-          </div>
-          <div style="color: var(--primary-color); font-size: 1.5rem;">→</div>
-          <div style="background: #e8f5e8; padding: 12px; border-radius: 8px; text-align: center; flex: 1; min-width: 120px;">
-            <div style="font-weight: 600; color: #388e3c;">Cloudflare 服务</div>
-            <div style="font-size: 0.9rem; color: var(--text-secondary);">目标服务</div>
-          </div>
-        </div>
-        <p style="text-align: center; color: var(--text-secondary); font-size: 0.95rem; margin: 0;">
-          通过第三方服务器反向代理 Cloudflare 的 443 端口，实现 Workers 对 Cloudflare 服务的访问
-        </p>
-      </div>
-      
-      <h3 style="color: var(--text-primary); margin: 24px 0 16px;">🎯 实际应用场景</h3>
-      <div style="background: linear-gradient(135deg, #fff3cd, #ffeaa7); padding: 20px; border-radius: var(--border-radius-sm); border-left: 4px solid var(--warning-color); margin: 20px 0;">
-        <p style="margin-bottom: 16px; line-height: 1.8; color: #856404;">
-          <strong style="font-size: 1.1rem;">由于上述限制</strong>，<strong><a href="https://github.com/cmliu/edgetunnel" target="_blank" style="color: #d63384; text-decoration: none;">edgetunnel</a></strong>、<strong><a href="https://github.com/cmliu/epeius" target="_blank" style="color: #d63384; text-decoration: none;">epeius</a></strong> 等项目，在尝试访问使用 Cloudflare CDN 服务的网站时，会因为无法建立到 Cloudflare IP 段的连接而导致访问失败。
-        </p>
-        <p style="margin: 0; line-height: 1.8; color: #856404;">
-          <strong>解决方案：</strong>通过配置有效的 ProxyIP，这些项目可以绕过限制，成功访问托管在 Cloudflare 上的目标网站，确保服务的正常运行。
-        </p>
-      </div>
-      
-      <h3 style="color: var(--text-primary); margin: 24px 0 16px;">✅ 有效 ProxyIP 特征</h3>
-      <div style="background: linear-gradient(135deg, #d4edda, #c3e6cb); padding: 20px; border-radius: var(--border-radius-sm); border-left: 4px solid var(--success-color);">
-        <ul style="margin: 0; color: #155724; line-height: 1.8; padding-left: 20px;">
-          <li><strong>网络连通性：</strong>能够成功建立到指定端口（通常为 443）的 TCP 连接</li>
-          <li><strong>代理功能：</strong>具备反向代理 Cloudflare IP 段的 HTTPS 服务能力</li>
-        </ul>
-      </div>
-      
-      <div style="background: var(--bg-tertiary); padding: 16px; border-radius: var(--border-radius-sm); margin-top: 20px; border-left: 4px solid var(--primary-color);">
-        <p style="margin: 0; color: var(--text-primary); font-weight: 500;">
-          💡 <strong>提示：</strong>本检测服务通过模拟真实的网络连接来验证 ProxyIP 的可用性，帮助您快速识别和筛选出稳定可靠的代理服务器。
-        </p>
-      </div>
-    </div>
-    
     <div class="api-docs" style="margin-top: 50px;">
       <h2 class="section-title">📚 API 文档</h2>
       <p style="margin-bottom: 24px; color: var(--text-secondary); font-size: 1.1rem;">
@@ -1235,8 +1167,11 @@ async function HTML(hostname, 网站图标, token) {
       
       <h3 style="color: var(--text-primary); margin: 24px 0 16px;">💡 使用示例</h3>
       <div class="code-block">
-curl "https://${hostname}/check?proxyip=1.2.3.4:443"
-      </div>
+proxyip.hk.fxxk.dedyn.io<br>
+proxyip.jp.fxxk.dedyn.io<br>
+curl "https://${hostname}/check?proxyip=1.2.3.4:443"<br>
+curl "https://${hostname}/check?proxyip=1.2.3.4:443&token=123"
+</div>
 
       <h3 style="color: var(--text-primary); margin: 24px 0 16px;">🔗 响应Json格式</h3>
       <div class="code-block">
@@ -1781,3 +1716,4 @@ curl "https://${hostname}/check?proxyip=1.2.3.4:443"
     headers: { "content-type": "text/html;charset=UTF-8" }
   });
 }
+
